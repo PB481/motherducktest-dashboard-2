@@ -4,51 +4,74 @@ import numpy as np
 from faker import Faker
 import random
 from datetime import datetime, timedelta
+import duckdb
 
 fake = Faker()
-np.random.seed(42)
-random.seed(42)
 
-NUM_FUNDS = 200
-fund_ids = [f"FUND{str(i).zfill(4)}" for i in range(1, NUM_FUNDS + 1)]
-assets = ["Equity", "Bond", "Real Estate", "Private Equity", "Commodities", "Cash", "Crypto"]
+# Sidebar controls
+st.set_page_config(layout="wide", page_title="Synthetic Fund Accounting Data")
+st.title("🧪 Synthetic Fund Accounting Data Generator")
 
+# Asset types
+default_assets = ["Equity", "Bond", "Real Estate", "Private Equity", "Commodities", "Cash", "Crypto"]
+assets = st.sidebar.multiselect("Select Asset Types", default_assets, default=default_assets)
+num_funds = st.sidebar.slider("Number of Funds", 10, 500, 200, step=10)
+num_assets = st.sidebar.slider("Avg. Assets per Fund", 5, 30, 10)
+
+accounting_rate = st.sidebar.number_input("Accounting Rate (bps)", min_value=0.0, value=1.0)
+custody_rate = st.sidebar.number_input("Custody Rate (bps)", min_value=0.0, value=0.5)
+ta_rate = st.sidebar.number_input("TA Rate (bps)", min_value=0.0, value=0.3)
+
+if 'regen' not in st.session_state:
+    st.session_state['regen'] = True
+
+if st.sidebar.button("🔄 Regenerate Data"):
+    st.session_state['regen'] = True
+
+fund_ids = [f"FUND{str(i).zfill(4)}" for i in range(1, num_funds + 1)]
+
+# --- Data Generators ---
 def generate_portfolio_data():
     data = []
     for fund_id in fund_ids:
-        for _ in range(np.random.randint(5, 20)):
+        for _ in range(random.randint(num_assets//2, num_assets*2)):
+            asset_type = random.choice(assets)
+            quantity = np.random.randint(100, 10000)
+            price = round(np.random.uniform(10, 500), 2)
             data.append({
                 "fund_id": fund_id,
-                "asset_type": random.choice(assets),
+                "asset_type": asset_type,
                 "asset_name": fake.company(),
-                "quantity": np.random.randint(100, 10000),
-                "price": round(np.random.uniform(10, 500), 2),
-                "market_value": lambda q, p: round(q * p, 2),
+                "quantity": quantity,
+                "price": price,
+                "market_value": round(quantity * price, 2),
+                "country_of_risk": fake.country(),
+                "currency": random.choice(["USD", "EUR", "GBP", "JPY"]),
+                "issuer_rating": random.choice(["AAA", "AA", "A", "BBB", "BB", "NR"])
             })
-    df = pd.DataFrame(data)
-    df["market_value"] = df.apply(lambda x: round(x["quantity"] * x["price"], 2), axis=1)
-    return df
+    return pd.DataFrame(data)
 
 def generate_transaction_data():
     data = []
     for fund_id in fund_ids:
-        for _ in range(np.random.randint(10, 50)):
-            trade_date = fake.date_between(start_date='-2y', end_date='today')
+        for _ in range(random.randint(10, 30)):
+            date = fake.date_between('-2y', 'today')
+            quantity = np.random.randint(10, 1000)
+            price = round(np.random.uniform(5, 300), 2)
             data.append({
                 "fund_id": fund_id,
                 "transaction_id": fake.uuid4(),
                 "asset_type": random.choice(assets),
-                "trade_date": trade_date,
-                "settlement_date": trade_date + timedelta(days=2),
+                "trade_date": date,
+                "settlement_date": date + timedelta(days=2),
                 "action": random.choice(["Buy", "Sell"]),
-                "quantity": np.random.randint(10, 500),
-                "price": round(np.random.uniform(10, 300), 2),
+                "quantity": quantity,
+                "price": price,
+                "value": quantity * price
             })
-    df = pd.DataFrame(data)
-    df["value"] = df["quantity"] * df["price"]
-    return df
+    return pd.DataFrame(data)
 
-def generate_budget_expense_income_data():
+def generate_budget_data():
     data = []
     for fund_id in fund_ids:
         for year in range(2023, 2026):
@@ -61,42 +84,43 @@ def generate_budget_expense_income_data():
             })
     return pd.DataFrame(data)
 
-def generate_corporate_actions_data():
-    actions = ["Dividend", "Split", "Merger", "Spin-off", "Bonus Issue"]
+def generate_corporate_actions():
+    actions = ["Dividend", "Split", "Merger", "Spin-off"]
     data = []
-    for _ in range(1000):
+    for _ in range(500):
         data.append({
             "fund_id": random.choice(fund_ids),
             "action_id": fake.uuid4(),
             "action_type": random.choice(actions),
-            "action_date": fake.date_between(start_date='-1y', end_date='today'),
-            "description": fake.text(max_nb_chars=50)
+            "action_date": fake.date_between('-1y', 'today'),
+            "description": fake.sentence()
         })
     return pd.DataFrame(data)
 
 def generate_investor_flows():
     data = []
     for fund_id in fund_ids:
-        for _ in range(np.random.randint(10, 50)):
+        for _ in range(random.randint(5, 15)):
             data.append({
                 "fund_id": fund_id,
                 "investor_id": fake.uuid4(),
                 "flow_type": random.choice(["Subscription", "Redemption"]),
-                "flow_date": fake.date_between(start_date='-2y', end_date='today'),
-                "amount": round(np.random.uniform(1e4, 1e6), 2),
+                "flow_date": fake.date_between('-2y', 'today'),
+                "amount": round(np.random.uniform(1e4, 1e6), 2)
             })
     return pd.DataFrame(data)
 
 def generate_aml_data():
     data = []
     for _ in range(1000):
+        flagged = random.choices(["Yes", "No"], weights=[0.05, 0.95])[0]
         data.append({
             "investor_id": fake.uuid4(),
             "name": fake.name(),
             "country": fake.country(),
             "transaction_amount": round(np.random.uniform(1e3, 1e6), 2),
-            "flagged": random.choices(["Yes", "No"], weights=[0.05, 0.95])[0],
-            "flag_reason": random.choice(["None", "High-risk country", "Large transaction", "PEP"]) if random.random() < 0.05 else "None"
+            "flagged": flagged,
+            "flag_reason": random.choice(["High-risk country", "Large transaction", "PEP", "None"]) if flagged == "Yes" else "None"
         })
     return pd.DataFrame(data)
 
@@ -109,51 +133,66 @@ def generate_investor_register():
             "email": fake.email(),
             "address": fake.address(),
             "country": fake.country(),
-            "registered_date": fake.date_between(start_date='-3y', end_date='today'),
+            "registered_date": fake.date_between('-3y', 'today')
         })
     return pd.DataFrame(data)
 
-# Streamlit UI
-st.set_page_config(layout="wide", page_title="Synthetic Fund Accounting Data")
+def calculate_servicing_cost(df):
+    rates = {"Equity": 0.0005, "Bond": 0.0004, "Real Estate": 0.001, "Private Equity": 0.0015,
+             "Commodities": 0.0008, "Cash": 0.0002, "Crypto": 0.001}
+    mix = df.groupby(["fund_id", "asset_type"])["market_value"].sum().reset_index()
+    mix["service_cost"] = mix.apply(lambda x: x.market_value * rates.get(x.asset_type, 0), axis=1)
+    return mix.groupby("fund_id")["service_cost"].sum().reset_index(name="servicing_cost")
 
-st.title("🧪 Synthetic Fund Accounting Data Generator")
+def calculate_admin_costs(df):
+    mv = df.groupby("fund_id")["market_value"].sum().reset_index()
+    mv["accounting"] = mv["market_value"] * accounting_rate / 10000
+    mv["custody"] = mv["market_value"] * custody_rate / 10000
+    mv["ta"] = mv["market_value"] * ta_rate / 10000
+    mv["total_admin_cost"] = mv[["accounting", "custody", "ta"]].sum(axis=1)
+    return mv
 
-tabs = st.tabs([
-    "Portfolio", "Transactions", "Budget & Financials",
-    "Corporate Actions", "Investor Flows", "AML Data", "Investor Register"
-])
+def send_to_motherduck(df_dict):
+    con = duckdb.connect("md:fund_data")  # replace with actual DB name or config
+    for name, df in df_dict.items():
+        con.execute(f"DROP TABLE IF EXISTS {name}")
+        con.execute(f"CREATE TABLE {name} AS SELECT * FROM df")
+    st.success("✅ Data uploaded to MotherDuck.")
 
-with tabs[0]:
-    st.subheader("📊 Portfolio Data")
+# --- Generate Data ---
+if st.session_state['regen']:
     df_portfolio = generate_portfolio_data()
-    st.dataframe(df_portfolio)
-
-with tabs[1]:
-    st.subheader("🔁 Transactions")
     df_transactions = generate_transaction_data()
-    st.dataframe(df_transactions)
-
-with tabs[2]:
-    st.subheader("💰 Budgets, Expenses, Income")
-    df_budget = generate_budget_expense_income_data()
-    st.dataframe(df_budget)
-
-with tabs[3]:
-    st.subheader("🏢 Corporate Actions")
-    df_actions = generate_corporate_actions_data()
-    st.dataframe(df_actions)
-
-with tabs[4]:
-    st.subheader("📥 Investor Flows")
+    df_budget = generate_budget_data()
+    df_actions = generate_corporate_actions()
     df_flows = generate_investor_flows()
-    st.dataframe(df_flows)
-
-with tabs[5]:
-    st.subheader("🚨 AML Data")
     df_aml = generate_aml_data()
-    st.dataframe(df_aml)
-
-with tabs[6]:
-    st.subheader("🧾 Investor Register")
     df_register = generate_investor_register()
-    st.dataframe(df_register)
+    df_servicing = calculate_servicing_cost(df_portfolio)
+    df_admin_cost = calculate_admin_costs(df_portfolio)
+    st.session_state['regen'] = False
+
+# --- UI Tabs ---
+tabs = st.tabs(["Portfolio", "Transactions", "Budget", "Corp Actions", "Investor Flows", "AML", "Register", "Servicing Cost", "Admin Cost"])
+with tabs[0]: st.dataframe(df_portfolio)
+with tabs[1]: st.dataframe(df_transactions)
+with tabs[2]: st.dataframe(df_budget)
+with tabs[3]: st.dataframe(df_actions)
+with tabs[4]: st.dataframe(df_flows)
+with tabs[5]: st.dataframe(df_aml)
+with tabs[6]: st.dataframe(df_register)
+with tabs[7]: st.dataframe(df_servicing)
+with tabs[8]: st.dataframe(df_admin_cost)
+
+if st.sidebar.button("📤 Upload to MotherDuck"):
+    send_to_motherduck({
+        "portfolio": df_portfolio,
+        "transactions": df_transactions,
+        "budget": df_budget,
+        "corp_actions": df_actions,
+        "flows": df_flows,
+        "aml": df_aml,
+        "register": df_register,
+        "servicing_cost": df_servicing,
+        "admin_cost": df_admin_cost
+    })

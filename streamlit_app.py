@@ -5,11 +5,30 @@ from faker import Faker
 import random
 from datetime import datetime, timedelta
 import duckdb
+import plotly.express as px
+from io import BytesIO
 
 fake = Faker()
 
 # Sidebar controls
 st.set_page_config(layout="wide", page_title="Synthetic Fund Accounting Data")
+
+# --- Authentication ---
+USER_CREDENTIALS = {"admin": "pass123", "analyst": "fund2025"}
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+if not st.session_state['authenticated']:
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("🔐 Login"):
+        if username in USER_CREDENTIALS and USER_CREDENTIALS[username] == password:
+            st.session_state['authenticated'] = True
+            st.success("Logged in!")
+        else:
+            st.error("Invalid credentials")
+    st.stop()
+
 st.title("🧪 Synthetic Fund Accounting Data Generator")
 
 # Asset types
@@ -153,11 +172,16 @@ def calculate_admin_costs(df):
     return mv
 
 def send_to_motherduck(df_dict):
-    con = duckdb.connect("md:fund_data")  # replace with actual DB name or config
+    con = duckdb.connect("md:your_project/your_db")  # Replace with your actual MotherDuck project/db
     for name, df in df_dict.items():
         con.execute(f"DROP TABLE IF EXISTS {name}")
         con.execute(f"CREATE TABLE {name} AS SELECT * FROM df")
     st.success("✅ Data uploaded to MotherDuck.")
+
+def download_link(df, filename):
+    towrite = BytesIO()
+    df.to_csv(towrite, index=False)
+    st.download_button(label=f"📥 Download {filename}.csv", data=towrite.getvalue(), file_name=f"{filename}.csv", mime="text/csv")
 
 # --- Generate Data ---
 if st.session_state['regen']:
@@ -174,15 +198,19 @@ if st.session_state['regen']:
 
 # --- UI Tabs ---
 tabs = st.tabs(["Portfolio", "Transactions", "Budget", "Corp Actions", "Investor Flows", "AML", "Register", "Servicing Cost", "Admin Cost"])
-with tabs[0]: st.dataframe(df_portfolio)
-with tabs[1]: st.dataframe(df_transactions)
-with tabs[2]: st.dataframe(df_budget)
-with tabs[3]: st.dataframe(df_actions)
-with tabs[4]: st.dataframe(df_flows)
-with tabs[5]: st.dataframe(df_aml)
-with tabs[6]: st.dataframe(df_register)
-with tabs[7]: st.dataframe(df_servicing)
-with tabs[8]: st.dataframe(df_admin_cost)
+with tabs[0]:
+    st.dataframe(df_portfolio)
+    fig = px.pie(df_portfolio, names="asset_type", values="market_value", title="Asset Type Allocation")
+    st.plotly_chart(fig)
+    download_link(df_portfolio, "portfolio")
+with tabs[1]: st.dataframe(df_transactions); download_link(df_transactions, "transactions")
+with tabs[2]: st.dataframe(df_budget); download_link(df_budget, "budget")
+with tabs[3]: st.dataframe(df_actions); download_link(df_actions, "corporate_actions")
+with tabs[4]: st.dataframe(df_flows); download_link(df_flows, "investor_flows")
+with tabs[5]: st.dataframe(df_aml); download_link(df_aml, "aml")
+with tabs[6]: st.dataframe(df_register); download_link(df_register, "investor_register")
+with tabs[7]: st.dataframe(df_servicing); download_link(df_servicing, "servicing_cost")
+with tabs[8]: st.dataframe(df_admin_cost); download_link(df_admin_cost, "admin_cost")
 
 if st.sidebar.button("📤 Upload to MotherDuck"):
     send_to_motherduck({
